@@ -70,7 +70,7 @@ jobs:
           
           # Bedrock呼び出し
           response = bedrock.invoke_model(
-              modelId='anthropic.claude-sonnet-4-5-20250929-v1:0',
+              modelId='jp.anthropic.claude-sonnet-4-5-20250929-v1:0',
               body=json.dumps(request_body, ensure_ascii=False)
           )
           
