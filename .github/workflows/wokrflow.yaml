@@ -44,16 +44,22 @@ jobs:
         with:
           soft_fail: true
 
-      # Bedrockリクエスト準備
-      - name: Prepare Bedrock Request
+      # AI要約生成（Pythonでboto3使用）
+      - name: Generate AI Summary with Bedrock
         run: |
           python3 << 'PYTHON'
           import json
+          import boto3
           
+          # Plan結果を読み込み
           with open('plan.txt', 'r', encoding='utf-8') as f:
               plan = f.read()
           
-          request = {
+          # Bedrockクライアント作成
+          bedrock = boto3.client('bedrock-runtime', region_name='${{ env.AWS_REGION }}')
+          
+          # リクエストボディ作成
+          request_body = {
               "anthropic_version": "bedrock-2023-05-31",
               "max_tokens": 4096,
               "messages": [{
@@ -62,18 +68,17 @@ jobs:
               }]
           }
           
-          with open('bedrock-request.json', 'w', encoding='utf-8') as f:
-              json.dump(request, f, ensure_ascii=False, indent=2)
+          # Bedrock呼び出し
+          response = bedrock.invoke_model(
+              modelId='anthropic.claude-sonnet-4-5-20250929-v1:0',
+              body=json.dumps(request_body, ensure_ascii=False)
+          )
+          
+          # レスポンス保存
+          response_body = json.loads(response['body'].read())
+          with open('bedrock-response.json', 'w', encoding='utf-8') as f:
+              json.dump(response_body, f, ensure_ascii=False, indent=2)
           PYTHON
-
-      # AI要約生成
-      - name: Generate AI Summary
-        run: |
-          aws bedrock-runtime invoke-model \
-            --model-id anthropic.claude-sonnet-4-5-20250929-v1:0 \
-            --region ${{ env.AWS_REGION }} \
-            --body file://bedrock-request.json \
-            bedrock-response.json
 
       # PRコメント
       - uses: actions/github-script@v8
