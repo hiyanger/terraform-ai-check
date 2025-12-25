@@ -28,21 +28,59 @@ jobs:
 
       # Terraform チェック & Plan
       - name: Terraform Check & Plan
+        id: terraform
         run: |
-          terraform fmt -check -recursive || true
+          echo "## Terraform結果" > check-results.txt
+          
+          # フォーマットチェック
+          if terraform fmt -check -recursive; then
+            echo "✅ Format: OK" >> check-results.txt
+          else
+            echo "⚠️ Format: 要修正" >> check-results.txt
+          fi
+          
+          # 初期化
           terraform init
-          terraform validate
+          
+          # バリデーション
+          if terraform validate; then
+            echo "✅ Validate: OK" >> check-results.txt
+          else
+            echo "❌ Validate: エラー" >> check-results.txt
+          fi
+          
+          # Plan実行
           terraform plan -no-color > plan.txt
+          echo "✅ Plan: 実行完了" >> check-results.txt
         continue-on-error: true
 
       # TFLint
       - uses: terraform-linters/setup-tflint@v6.2.1
-      - run: tflint --init && tflint --format compact || true
+      - name: Run TFLint
+        id: tflint
+        run: |
+          tflint --init
+          if tflint --format compact; then
+            echo "✅ TFLint: 問題なし" >> check-results.txt
+          else
+            echo "⚠️ TFLint: 警告あり" >> check-results.txt
+          fi
+        continue-on-error: true
 
       # セキュリティチェック
-      - uses: aquasecurity/tfsec-action@v1.0.3
-        with:
-          soft_fail: true
+      - name: Run tfsec
+        id: tfsec
+        run: |
+          # tfsecインストール
+          curl -s https://raw.githubusercontent.com/aquasecurity/tfsec/master/scripts/install_linux.sh | bash
+          
+          # tfsec実行
+          if tfsec --format default --soft-fail .; then
+            echo "✅ tfsec: セキュリティ問題なし" >> check-results.txt
+          else
+            echo "⚠️ tfsec: セキュリティ警告あり" >> check-results.txt
+          fi
+        continue-on-error: true
 
       # AI要約生成（Pythonでboto3使用）
       - name: Generate AI Summary with Bedrock
@@ -85,15 +123,22 @@ jobs:
         with:
           script: |
             const fs = require('fs');
+            
+            // チェック結果を読み込み
+            const checkResults = fs.readFileSync('check-results.txt', 'utf8');
+            
+            // AI要約を読み込み
             const response = JSON.parse(fs.readFileSync('bedrock-response.json', 'utf8'));
             const summary = response.content[0].text;
+            
+            // Plan詳細を読み込み
             const plan = fs.readFileSync('plan.txt', 'utf8').substring(0, 60000);
             
             await github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: `## 🤖 AI要約\n\n${summary}\n\n<details><summary>📋 Plan詳細</summary>\n\n\`\`\`\n${plan}\n\`\`\`\n</details>`
+              body: `${checkResults}\n\n## 🤖 AI要約\n\n${summary}\n\n<details><summary>📋 Plan詳細</summary>\n\n\`\`\`\n${plan}\n\`\`\`\n</details>`
             });
 
   # Merge後: 本番環境へApply
