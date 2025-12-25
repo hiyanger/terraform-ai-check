@@ -44,50 +44,51 @@ jobs:
         with:
           soft_fail: true
 
-      # AI要約 & PRコメント
+      # Bedrockリクエスト準備
+      - name: Prepare Bedrock Request
+        run: |
+          python3 << 'PYTHON'
+          import json
+          
+          with open('plan.txt', 'r', encoding='utf-8') as f:
+              plan = f.read()
+          
+          request = {
+              "anthropic_version": "bedrock-2023-05-31",
+              "max_tokens": 4096,
+              "messages": [{
+                  "role": "user",
+                  "content": f"以下のTerraform planを日本語で要約してください:\n\n{plan}"
+              }]
+          }
+          
+          with open('bedrock-request.json', 'w', encoding='utf-8') as f:
+              json.dump(request, f, ensure_ascii=False, indent=2)
+          PYTHON
+
+      # AI要約生成
+      - name: Generate AI Summary
+        run: |
+          aws bedrock-runtime invoke-model \
+            --model-id anthropic.claude-sonnet-4-5-20250929-v1:0 \
+            --region ${{ env.AWS_REGION }} \
+            --body file://bedrock-request.json \
+            bedrock-response.json
+
+      # PRコメント
       - uses: actions/github-script@v8
         with:
           script: |
             const fs = require('fs');
-            const { spawnSync } = require('child_process');
-            
-            // Plan結果を読み込み
-            const plan = fs.readFileSync('plan.txt', 'utf8');
-            const requestBody = {
-              anthropic_version: "bedrock-2023-05-31",
-              max_tokens: 4096,
-              messages: [{
-                role: "user",
-                content: "以下のTerraform planを日本語で要約してください:\n\n" + plan
-              }]
-            };
-            
-            // リクエストボディをファイルに保存
-            fs.writeFileSync('bedrock-request.json', JSON.stringify(requestBody), 'utf8');
-            
-            // Bedrockを呼び出し（spawnSyncでバッファ問題を回避）
-            const result = spawnSync('aws', [
-              'bedrock-runtime', 'invoke-model',
-              '--model-id', 'anthropic.claude-sonnet-4-5-20250929-v1:0',
-              '--region', '${{ env.AWS_REGION }}',
-              '--body', 'file://bedrock-request.json',
-              'bedrock-response.json'
-            ], { encoding: 'utf8' });
-            
-            if (result.status !== 0) {
-              throw new Error(`Bedrock API failed: ${result.stderr}`);
-            }
-            
             const response = JSON.parse(fs.readFileSync('bedrock-response.json', 'utf8'));
             const summary = response.content[0].text;
-            const planPreview = plan.substring(0, 60000);
+            const plan = fs.readFileSync('plan.txt', 'utf8').substring(0, 60000);
             
-            // PRにコメント投稿
             await github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: `## 🤖 AI要約\n\n${summary}\n\n<details><summary>📋 Plan詳細</summary>\n\n\`\`\`\n${planPreview}\n\`\`\`\n</details>`
+              body: `## 🤖 AI要約\n\n${summary}\n\n<details><summary>📋 Plan詳細</summary>\n\n\`\`\`\n${plan}\n\`\`\`\n</details>`
             });
 
   # Merge後: 本番環境へApply
