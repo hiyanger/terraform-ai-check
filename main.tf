@@ -8,7 +8,7 @@ resource "aws_vpc" "main" {
 
 # Subnet
 resource "aws_subnet" "public" {
-  vpc_id = aws_vpc.main.id
+  vpc_id     = aws_vpc.main.id
   cidr_block = "10.0.1.0/24"
   tags = {
     Name = "public"
@@ -33,22 +33,22 @@ resource "aws_route_table" "main" {
 
 # Route
 resource "aws_route" "main" {
-  route_table_id = aws_route_table.main.id
+  route_table_id         = aws_route_table.main.id
   destination_cidr_block = "0.0.0.0/0"
-  gateway_id = aws_internet_gateway.main.id
+  gateway_id             = aws_internet_gateway.main.id
 }
 
 # Route Table Association
-resource "aws_route_table_association" "public" {  
-  subnet_id = aws_subnet.public.id
+resource "aws_route_table_association" "public" {
+  subnet_id      = aws_subnet.public.id
   route_table_id = aws_route_table.main.id
 }
 
 # security group
 resource "aws_security_group" "main" {
-  name = "main"
+  name        = "main"
   description = "Main security group"
-  vpc_id = aws_vpc.main.id
+  vpc_id      = aws_vpc.main.id
 
   ingress {
     description = "HTTP from anywhere"
@@ -73,10 +73,10 @@ resource "aws_security_group" "main" {
 
 # EC2 instance
 resource "aws_instance" "main" {
-  ami           = "ami-09cd9fdbf26acc6b4"
-  instance_type = "t3.micro"
-  subnet_id     = aws_subnet.public.id
-  vpc_security_group_ids = [aws_security_group.main.id]
+  ami                         = "ami-09cd9fdbf26acc6b4"
+  instance_type               = "t3.micro"
+  subnet_id                   = aws_subnet.public.id
+  vpc_security_group_ids      = [aws_security_group.main.id]
   associate_public_ip_address = true
 
   user_data = <<-EOF

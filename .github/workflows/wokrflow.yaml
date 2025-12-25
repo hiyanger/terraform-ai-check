@@ -8,9 +8,9 @@ on:
 
 env:
   AWS_REGION: ap-northeast-1
+  BEDROCK_MODEL_ID: jp.anthropic.claude-sonnet-4-5-20250929-v1:0
 
 jobs:
-  # Pull Request時: チェック & AI要約
   terraform-check:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
@@ -19,66 +19,81 @@ jobs:
       pull-requests: write
       id-token: write
     steps:
+      # セットアップ
       - uses: actions/checkout@v6.0.1
       - uses: aws-actions/configure-aws-credentials@v5.1.1
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
           aws-region: ${{ env.AWS_REGION }}
       - uses: hashicorp/setup-terraform@v3.1.2
+      - uses: terraform-linters/setup-tflint@v6.2.1
 
-      # Terraform チェック & Plan
+      # Terraformチェック
       - name: Terraform Check & Plan
         run: |
-          terraform fmt -check -recursive || true
+          add_result() { echo "$1" >> check-results.txt; }
+          {
+            echo "# チェック結果"
+          } > check-results.txt
+          
+          terraform fmt -check -recursive && add_result "✅ Format: OK" || add_result "⚠️ Format: 要修正"
           terraform init
-          terraform validate
-          terraform plan -no-color > plan.txt
+          terraform validate && add_result "✅ Validate: OK" || add_result "❌ Validate: エラー"
+          terraform plan -no-color > plan.txt && add_result "✅ Plan: 実行完了"
         continue-on-error: true
 
-      # TFLint
-      - uses: terraform-linters/setup-tflint@v6.2.1
-      - run: tflint --init && tflint --format compact || true
+      # Linter & セキュリティ
+      - name: TFLint & tfsec
+        run: |
+          add_result() { echo "$1" >> check-results.txt; }
+          
+          tflint --init
+          tflint --format compact && add_result "✅ TFLint: 問題なし" || add_result "⚠️ TFLint: 警告あり"
+          
+          curl -s https://raw.githubusercontent.com/aquasecurity/tfsec/master/scripts/install_linux.sh | bash
+          tfsec --format default --soft-fail . && add_result "✅ tfsec: セキュリティ問題なし" || add_result "⚠️ tfsec: セキュリティ警告あり"
+        continue-on-error: true
 
-      # セキュリティチェック
-      - uses: aquasecurity/tfsec-action@v1.0.3
-        with:
-          soft_fail: true
+      # AI要約生成
+      - name: Generate AI Summary
+        run: |
+          python3 << 'EOF'
+          import json, boto3
+          
+          with open('plan.txt', 'r', encoding='utf-8') as f:
+              plan = f.read()
+          
+          bedrock = boto3.client('bedrock-runtime', region_name='${{ env.AWS_REGION }}')
+          response = bedrock.invoke_model(
+              modelId='${{ env.BEDROCK_MODEL_ID }}',
+              body=json.dumps({
+                  "anthropic_version": "bedrock-2023-05-31",
+                  "max_tokens": 4096,
+                  "messages": [{"role": "user", "content": f"以下のTerraform planを日本語で要約してください:\n\n{plan}"}]
+              }, ensure_ascii=False)
+          )
+          
+          with open('bedrock-response.json', 'w', encoding='utf-8') as f:
+              json.dump(json.loads(response['body'].read()), f, ensure_ascii=False)
+          EOF
 
-      # AI要約 & PRコメント
+      # PRコメント投稿
       - uses: actions/github-script@v8
         with:
           script: |
             const fs = require('fs');
-            const { execSync } = require('child_process');
+            const checkResults = fs.readFileSync('check-results.txt', 'utf8');
+            const response = JSON.parse(fs.readFileSync('bedrock-response.json', 'utf8'));
+            const summary = response.content[0].text;
+            const plan = fs.readFileSync('plan.txt', 'utf8').substring(0, 60000);
             
-            // Plan結果を読み込み
-            const plan = fs.readFileSync('plan.txt', 'utf8');
-            const prompt = `以下のTerraform planを日本語で要約してください:\n\n${plan}`;
-            
-            // Bedrockリクエストボディを作成
-            const body = JSON.stringify({
-              anthropic_version: "bedrock-2023-05-31",
-              max_tokens: 4096,
-              messages: [{role: "user", content: prompt}]
-            });
-            
-            // Bedrock（Claude）でAI要約を生成
-            const cmd = `aws bedrock-runtime invoke-model --model-id anthropic.claude-sonnet-4-5-20250929-v1:0 --region ${{ env.AWS_REGION }} --body '${body}' --output json /dev/stdout`;
-            const result = JSON.parse(execSync(cmd, {encoding: 'utf8'}));
-            const summary = result.content[0].text;
-            
-            // Plan詳細（60000文字まで）
-            const planPreview = plan.substring(0, 60000);
-            
-            // PRにコメント投稿
             await github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: `## 🤖 AI要約\n\n${summary}\n\n<details><summary>📋 Plan詳細</summary>\n\n\`\`\`\n${planPreview}\n\`\`\`\n</details>`
+              body: `${checkResults}\n\n${summary}\n\n# 📄 Terraform Plan 詳細\n<details>\n<summary>クリックして表示</summary>\n\n\`\`\`terraform\n${plan}\n\`\`\`\n\n</details>`
             });
 
-  # Merge後: 本番環境へApply
   terraform-apply:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest

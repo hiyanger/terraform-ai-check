@@ -1,0 +1,10 @@
+# tfsec設定ファイル
+# デフォルト設定: すべてのセキュリティチェックを実行
+
+# 最小重要度レベル（LOW, MEDIUM, HIGH, CRITICAL）
+minimum_severity: MEDIUM
+
+# 除外するチェック（必要に応じてコメントアウトを外す）
+# exclude:
+#   - aws-ec2-no-public-ingress-sgr
+#   - aws-vpc-no-public-ingress-acl
