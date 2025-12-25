@@ -31,25 +31,28 @@ jobs:
       # Terraformチェック
       - name: Terraform Check & Plan
         run: |
-          add_result() { echo "$1" >> check-results.txt; }
-          echo "## Terraform結果" > check-results.txt
+          add_result() { echo "- $1" >> check-results.txt; }
+          {
+            echo "## 📋 チェック結果"
+            echo ""
+          } > check-results.txt
           
-          terraform fmt -check -recursive && add_result "✅ Format: OK" || add_result "⚠️ Format: 要修正"
+          terraform fmt -check -recursive && add_result "✅ **Format**: OK" || add_result "⚠️ **Format**: 要修正"
           terraform init
-          terraform validate && add_result "✅ Validate: OK" || add_result "❌ Validate: エラー"
-          terraform plan -no-color > plan.txt && add_result "✅ Plan: 実行完了"
+          terraform validate && add_result "✅ **Validate**: OK" || add_result "❌ **Validate**: エラー"
+          terraform plan -no-color > plan.txt && add_result "✅ **Plan**: 実行完了"
         continue-on-error: true
 
       # Linter & セキュリティ
       - name: TFLint & tfsec
         run: |
-          add_result() { echo "$1" >> check-results.txt; }
+          add_result() { echo "- $1" >> check-results.txt; }
           
           tflint --init
-          tflint --format compact && add_result "✅ TFLint: 問題なし" || add_result "⚠️ TFLint: 警告あり"
+          tflint --format compact && add_result "✅ **TFLint**: 問題なし" || add_result "⚠️ **TFLint**: 警告あり"
           
           curl -s https://raw.githubusercontent.com/aquasecurity/tfsec/master/scripts/install_linux.sh | bash
-          tfsec --format default --soft-fail . && add_result "✅ tfsec: セキュリティ問題なし" || add_result "⚠️ tfsec: セキュリティ警告あり"
+          tfsec --format default --soft-fail . && add_result "✅ **tfsec**: セキュリティ問題なし" || add_result "⚠️ **tfsec**: セキュリティ警告あり"
         continue-on-error: true
 
       # AI要約生成
@@ -89,7 +92,7 @@ jobs:
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: `${checkResults}\n\n## 🤖 AI要約\n\n${summary}\n\n<details><summary>📋 Plan詳細</summary>\n\n\`\`\`\n${plan}\n\`\`\`\n</details>`
+              body: `${checkResults}\n\n## 🤖 AI要約\n\n${summary}\n\n## 📄 Plan詳細\n\n<details>\n<summary>クリックして表示</summary>\n\n\`\`\`terraform\n${plan}\n\`\`\`\n\n</details>`
             });
 
   terraform-apply:
