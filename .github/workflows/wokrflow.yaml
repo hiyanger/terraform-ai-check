@@ -55,19 +55,19 @@ jobs:
             const plan = fs.readFileSync('plan.txt', 'utf8');
             const prompt = `以下のTerraform planを日本語で要約してください:\n\n${plan}`;
             
-            // Bedrockリクエストボディを作成
-            const body = JSON.stringify({
+            // Bedrockリクエストボディをファイルに書き出し（日本語対応）
+            const requestBody = {
               anthropic_version: "bedrock-2023-05-31",
               max_tokens: 4096,
               messages: [{role: "user", content: prompt}]
-            });
+            };
+            fs.writeFileSync('bedrock-request.json', JSON.stringify(requestBody));
             
             // Bedrock（Claude）でAI要約を生成
-            const cmd = `aws bedrock-runtime invoke-model --model-id anthropic.claude-sonnet-4-5-20250929-v1:0 --region ${{ env.AWS_REGION }} --body '${body}' --output json /dev/stdout`;
-            const result = JSON.parse(execSync(cmd, {encoding: 'utf8'}));
-            const summary = result.content[0].text;
+            execSync(`aws bedrock-runtime invoke-model --model-id anthropic.claude-sonnet-4-5-20250929-v1:0 --region ${{ env.AWS_REGION }} --body file://bedrock-request.json --output json bedrock-response.json`);
             
-            // Plan詳細（60000文字まで）
+            const result = JSON.parse(fs.readFileSync('bedrock-response.json', 'utf8'));
+            const summary = result.content[0].text;
             const planPreview = plan.substring(0, 60000);
             
             // PRにコメント投稿
