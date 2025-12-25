@@ -49,25 +49,37 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            const { execSync } = require('child_process');
+            const { spawnSync } = require('child_process');
             
             // Plan結果を読み込み
             const plan = fs.readFileSync('plan.txt', 'utf8');
-            const prompt = `以下のTerraform planを日本語で要約してください:\n\n${plan}`;
-            
-            // Bedrockリクエストボディをファイルに書き出し（日本語対応）
             const requestBody = {
               anthropic_version: "bedrock-2023-05-31",
               max_tokens: 4096,
-              messages: [{role: "user", content: prompt}]
+              messages: [{
+                role: "user",
+                content: "以下のTerraform planを日本語で要約してください:\n\n" + plan
+              }]
             };
-            fs.writeFileSync('bedrock-request.json', JSON.stringify(requestBody));
             
-            // Bedrock（Claude）でAI要約を生成
-            execSync(`aws bedrock-runtime invoke-model --model-id anthropic.claude-sonnet-4-5-20250929-v1:0 --region ${{ env.AWS_REGION }} --body file://bedrock-request.json --output json bedrock-response.json`);
+            // リクエストボディをファイルに保存
+            fs.writeFileSync('bedrock-request.json', JSON.stringify(requestBody), 'utf8');
             
-            const result = JSON.parse(fs.readFileSync('bedrock-response.json', 'utf8'));
-            const summary = result.content[0].text;
+            // Bedrockを呼び出し（spawnSyncでバッファ問題を回避）
+            const result = spawnSync('aws', [
+              'bedrock-runtime', 'invoke-model',
+              '--model-id', 'anthropic.claude-sonnet-4-5-20250929-v1:0',
+              '--region', '${{ env.AWS_REGION }}',
+              '--body', 'file://bedrock-request.json',
+              'bedrock-response.json'
+            ], { encoding: 'utf8' });
+            
+            if (result.status !== 0) {
+              throw new Error(`Bedrock API failed: ${result.stderr}`);
+            }
+            
+            const response = JSON.parse(fs.readFileSync('bedrock-response.json', 'utf8'));
+            const summary = response.content[0].text;
             const planPreview = plan.substring(0, 60000);
             
             // PRにコメント投稿
